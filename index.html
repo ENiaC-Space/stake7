@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ENiAC Staking</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Additional styles */
+        .view-wallet-section {
+            background: #1e293b;
+            border: 1px solid #475569;
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .apr-section {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .wallet-input-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .wallet-input-group input {
+            flex: 1;
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid #475569;
+            background: #0f172a;
+            color: white;
+            font-family: monospace;
+        }
+        
+        .wallet-action-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn-info {
+            background: #0ea5e9;
+            color: white;
+        }
+        
+        .btn-secondary {
+            background: #64748b;
+            color: white;
+        }
+        
+        .apr-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .apr-item {
+            background: rgba(255, 255, 255, 0.1);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .apr-value {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #fbbf24;
+            margin: 10px 0;
+        }
+        
+        .apr-label {
+            font-size: 0.9rem;
+            opacity: 0.9;
+        }
+        
+        .token-details {
+            background: #1e293b;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .details-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .detail-item {
+            padding: 15px;
+            background: #0f172a;
+            border-radius: 8px;
+            border-left: 4px solid #3b82f6;
+        }
+        
+        .detail-label {
+            font-size: 0.9rem;
+            color: #94a3b8;
+            margin-bottom: 5px;
+        }
+        
+        .detail-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: white;
+            font-family: 'Courier New', monospace;
+        }
+        
+        .copy-btn {
+            background: #475569;
+            border: none;
+            color: white;
+            padding: 5px 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            margin-left: 10px;
+        }
+        
+        .copy-btn:hover {
+            background: #64748b;
+        }
+        
+        /* APR Details Section */
+        .stat-label {
+            font-size: 0.8rem;
+            color: #94a3b8;
+            margin-top: 5px;
+        }
+        
+        /* Animation for loading APR */
+        @keyframes pulse {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+        
+        .loading-apr {
+            animation: pulse 1.5s infinite;
+            color: #94a3b8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1><i class="fas fa-robot"></i> ENiAC Staking</h1>
+            <p>Stake ENiAC tokens and earn rewards on BSC</p>
+            
+            <div class="wallet-section">
+                <div class="wallet-info" id="walletInfo">
+                    <i class="fas fa-wallet"></i>
+                    <span>Not Connected</span>
+                </div>
+                <button class="connect-btn" id="connectBtn">
+                    <i class="fas fa-plug"></i> Connect Wallet
+                </button>
+            </div>
+        </header>
+
+        <!-- View Another Wallet Section -->
+        <div class="view-wallet-section">
+            <h2><i class="fas fa-eye"></i> View Another Wallet</h2>
+            <div class="wallet-input-group">
+                <input type="text" id="viewWalletInput" placeholder="Enter wallet address (0x...)" style="flex: 1;">
+                <button class="btn btn-info" id="viewWalletBtn">
+                    <i class="fas fa-search"></i> View
+                </button>
+            </div>
+            <div class="wallet-action-buttons">
+                <button class="btn btn-secondary" id="copyMyAddressBtn">
+                    <i class="fas fa-copy"></i> Copy My Address
+                </button>
+                <button class="btn btn-secondary" id="viewMyWalletBtn">
+                    <i class="fas fa-user"></i> View My Wallet
+                </button>
+            </div>
+        </div>
+
+        <!-- APR Details Section -->
+        <div class="card" id="aprDetailsSection">
+            <h2><i class="fas fa-calculator"></i> APR/APY Details</h2>
+            
+            <div class="stats-row" style="margin-bottom: 20px;">
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-chart-line"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>APR (Annual)</h3>
+                        <div class="stat-value" id="aprValue">0%</div>
+                        <div class="stat-label" id="aprDescription">Calculating...</div>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-rocket"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>APY (Compounded)</h3>
+                        <div class="stat-value" id="apyValue">0%</div>
+                        <div class="stat-label">With Daily Compounding</div>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-calendar-day"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>Daily Rate</h3>
+                        <div class="stat-value" id="dailyRewardsAPR">0%</div>
+                        <div class="stat-label">Per Day</div>
+                    </div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">
+                        <i class="fas fa-cube"></i>
+                    </div>
+                    <div class="stat-content">
+                        <h3>Reward/Block</h3>
+                        <div class="stat-value" id="rewardPerBlock">0 ENiAC</div>
+                        <div class="stat-label">Per Block</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="details-grid">
+                <div class="detail-item">
+                    <div class="detail-label">Total Staked in Pool</div>
+                    <div class="detail-value" id="totalStaked">0 ENiAC</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Pool Allocation</div>
+                    <div class="detail-value" id="poolAllocPercentage">0%</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">ENiAC Per Block</div>
+                    <div class="detail-value" id="antPerBlock">0 ENiAC</div>
+                </div>
+                <div class="detail-item">
+                    <div class="detail-label">Blocks Per Year</div>
+                    <div class="detail-value" id="blocksPerYear">10,512,000</div>
+                </div>
+            </div>
+            
+            <div style="margin-top: 25px; padding: 20px; background: #0f172a; border-radius: 10px;">
+                <h3 style="margin-bottom: 15px; color: #60a5fa;">
+                    <i class="fas fa-coins"></i> Your Estimated Rewards
+                </h3>
+                <div class="details-grid">
+                    <div class="detail-item">
+                        <div class="detail-label">Daily Estimate</div>
+                        <div class="detail-value" id="dailyEstimate">0 ENiAC</div>
+                        <div class="detail-label" style="font-size: 0.8rem;" id="dailyPercentage">0% of stake</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Weekly Estimate</div>
+                        <div class="detail-value" id="weeklyEstimate">0 ENiAC</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Monthly Estimate</div>
+                        <div class="detail-value" id="monthlyEstimate">0 ENiAC</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-label">Yearly Estimate</div>
+                        <div class="detail-value" id="yearlyEstimate">0 ENiAC</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="network-info" style="margin-top: 20px;">
+                <i class="fas fa-info-circle"></i>
+                <p>
+                    <strong>APR Formula:</strong> (Pool Reward Per Block × Blocks Per Year ÷ Total Staked) × 100<br>
+                    <strong>APY Formula:</strong> (1 + APR/36500)³⁶⁵ - 1 × 100 (compounded daily)<br>
+                    <strong>Note:</strong> APR/APY may change based on pool allocation and total staked amount.
+                </p>
+            </div>
+        </div>
+
+        <!-- Stats Row -->
+        <div class="stats-row">
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-coins"></i>
+                </div>
+                <div class="stat-content">
+                    <h3>Wallet Balance</h3>
+                    <div class="stat-value" id="walletBalance">0 ENiAC</div>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-lock"></i>
+                </div>
+                <div class="stat-content">
+                    <h3>Staked Amount</h3>
+                    <div class="stat-value" id="stakedAmount">0 ENiAC</div>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-gift"></i>
+                </div>
+                <div class="stat-content">
+                    <h3>Pending Rewards</h3>
+                    <div class="stat-value" id="pendingRewards">0 ENiAC</div>
+                </div>
+            </div>
+            
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+                <div class="stat-content">
+                    <h3>Allowance</h3>
+                    <div class="stat-value" id="allowanceAmount">0 ENiAC</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stake Card -->
+        <div class="card">
+            <h2><i class="fas fa-lock"></i> Stake ENiAC Tokens</h2>
+            
+            <div class="form-group">
+                <label for="amountInput">Amount to Stake/Unstake</label>
+                <div class="input-with-button">
+                    <input type="number" id="amountInput" placeholder="0.0" min="0" step="0.1">
+                    <button class="max-btn" id="maxBtn">
+                        <i class="fas fa-arrow-up"></i> MAX
+                    </button>
+                </div>
+                <div class="balance-info">
+                    Available: <span id="availableBalance">0</span> ENiAC
+                </div>
+            </div>
+
+            <div class="action-buttons">
+                <button class="btn btn-success" id="approveBtn">
+                    <i class="fas fa-check-circle"></i> Approve
+                </button>
+                <button class="btn btn-primary" id="stakeBtn" disabled>
+                    <i class="fas fa-lock"></i> Stake
+                </button>
+                <button class="btn btn-danger" id="unstakeBtn" disabled>
+                    <i class="fas fa-unlock"></i> Unstake
+                </button>
+                <button class="btn btn-warning" id="claimBtn" disabled>
+                    <i class="fas fa-gift"></i> Claim Rewards
+                </button>
+            </div>
+
+            <div class="network-info">
+                <i class="fas fa-info-circle"></i>
+                <p>You need BNB for gas fees. Make sure you're on BSC Mainnet.</p>
+            </div>
+        </div>
+
+        <!-- Contract Info -->
+        <div class="card">
+            <h2><i class="fas fa-file-contract"></i> Smart Contracts</h2>
+            
+            <div class="contract-info">
+                <div class="contract-item">
+                    <div class="contract-icon">
+                        <i class="fas fa-coins"></i>
+                    </div>
+                    <div class="contract-details">
+                        <h3>ENiAC Token</h3>
+                        <p class="contract-address" id="eniacAddress">0xafF339de48848d0F8B5704909Ac94e8E8D7E3415</p>
+                        <a href="https://bscscan.com/address/0xafF339de48848d0F8B5704909Ac94e8E8D7E3415" target="_blank">
+                            <i class="fas fa-external-link-alt"></i> View on BscScan
+                        </a>
+                    </div>
+                </div>
+                
+                <div class="contract-item">
+                    <div class="contract-icon">
+                        <i class="fas fa-chess-queen"></i>
+                    </div>
+                    <div class="contract-details">
+                        <h3>MasterChef</h3>
+                        <p class="contract-address" id="masterchefAddress">0x564DF71B75855d63c86a267206Cd0c9e35c92789</p>
+                        <a href="https://bscscan.com/address/0x564DF71B75855d63c86a267206Cd0c9e35c92789" target="_blank">
+                            <i class="fas fa-external-link-alt"></i> View on BscScan
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Message -->
+        <div class="status-message" id="statusMessage"></div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>ENiAC Staking Platform - Binance Smart Chain</p>
+            <p class="footer-note">
+                <i class="fas fa-exclamation-triangle"></i>
+                Always verify transactions on BscScan
+            </p>
+        </footer>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.0/dist/ethers.umd.min.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>
