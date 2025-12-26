@@ -10,39 +10,21 @@ const CONFIG = {
 };
 
 // ============================
-// COMPLETE ABI FOR STAKE FUNCTION
+// SIMPLIFIED ABI
 // ============================
 const ENIAC_ABI = [
     "function balanceOf(address owner) view returns (uint256)",
     "function decimals() view returns (uint8)",
     "function allowance(address owner, address spender) view returns (uint256)",
-    "function approve(address spender, uint256 amount) returns (bool)",
-    "function totalSupply() view returns (uint256)",
-    "function name() view returns (string)",
-    "function symbol() view returns (string)"
+    "function approve(address spender, uint256 amount) returns (bool)"
 ];
 
 const MASTERCHEF_ABI = [
-    // User Functions
+    // Basic functions only
     "function deposit(uint256 _pid, uint256 _amount)",
     "function withdraw(uint256 _pid, uint256 _amount)",
-    "function emergencyWithdraw(uint256 _pid)",
-    
-    // View Functions
-    "function poolInfo(uint256) view returns (address lpToken, uint256 allocPoint, uint256 lastRewardBlock, uint256 accANTPerShare)",
     "function userInfo(uint256, address) view returns (uint256 amount, uint256 rewardDebt)",
-    "function pendingANT(uint256 _pid, address _user) view returns (uint256)",
-    
-    // Pool Info
-    "function poolLength() view returns (uint256)",
-    "function totalAllocPoint() view returns (uint256)",
-    
-    // Reward Info
-    "function ANTPerBlock() view returns (uint256)",
-    "function startBlock() view returns (uint256)",
-    
-    // Token Info
-    "function ANT() view returns (address)"
+    "function pendingANT(uint256 _pid, address _user) view returns (uint256)"
 ];
 
 // ============================
@@ -51,88 +33,67 @@ const MASTERCHEF_ABI = [
 let provider = null;
 let signer = null;
 let userAddress = null;
-let chainId = null;
-
 let eniacContract = null;
 let masterchefContract = null;
-
-let isConnected = false;
-let currentPoolId = 0; // Default to pool 0
-let tokenDecimals = 18;
-let currentViewAddress = null;
-let isViewingOtherWallet = false;
+let currentPoolId = 0;
 
 // ============================
-// SIMPLIFIED INITIALIZATION
+// INITIALIZATION
 // ============================
 document.addEventListener('DOMContentLoaded', () => {
     console.log('ENiAC Staking DApp Loading...');
     
-    if (typeof window.ethereum === 'undefined') {
-        showStatus('Please install MetaMask!', 'error');
-        connectBtn.innerHTML = '<i class="fas fa-download"></i> Install MetaMask';
-        connectBtn.onclick = () => window.open('https://metamask.io/download/', '_blank');
-        return;
-    }
-    
+    // Setup event listeners
     setupEventListeners();
     
     // Check if already connected
-    window.ethereum.request({ method: 'eth_accounts' })
-        .then(accounts => {
-            if (accounts.length > 0) {
-                userAddress = accounts[0];
-                currentViewAddress = userAddress;
-                initializeApp();
-            }
-        })
-        .catch(err => console.log('No cached connection'));
+    if (window.ethereum && window.ethereum.selectedAddress) {
+        userAddress = window.ethereum.selectedAddress;
+        initializeApp();
+    }
 });
 
 function setupEventListeners() {
     // Connect button
-    connectBtn.addEventListener('click', connectWallet);
+    document.getElementById('connectBtn').addEventListener('click', connectWallet);
     
     // Transaction buttons
-    maxBtn.addEventListener('click', setMaxAmount);
-    approveBtn.addEventListener('click', approveTokens);
-    stakeBtn.addEventListener('click', stakeTokens);
-    unstakeBtn.addEventListener('click', unstakeTokens);
-    claimBtn.addEventListener('click', claimRewards);
+    document.getElementById('maxBtn').addEventListener('click', setMaxAmount);
+    document.getElementById('approveBtn').addEventListener('click', approveTokens);
+    document.getElementById('stakeBtn').addEventListener('click', stakeTokens);
+    document.getElementById('unstakeBtn').addEventListener('click', unstakeTokens);
+    document.getElementById('claimBtn').addEventListener('click', claimRewards);
     
     // Wallet buttons
-    viewWalletBtn.addEventListener('click', viewOtherWallet);
-    copyMyAddressBtn.addEventListener('click', copyMyAddress);
-    viewMyWalletBtn.addEventListener('click', viewMyWallet);
+    document.getElementById('viewWalletBtn').addEventListener('click', viewOtherWallet);
+    document.getElementById('copyMyAddressBtn').addEventListener('click', copyMyAddress);
+    document.getElementById('viewMyWalletBtn').addEventListener('click', viewMyWallet);
     
     // MetaMask events
     if (window.ethereum) {
         window.ethereum.on('accountsChanged', (accounts) => {
             if (accounts.length > 0) {
                 userAddress = accounts[0];
-                currentViewAddress = userAddress;
                 initializeApp();
             } else {
                 resetApp();
             }
-        });
-        
-        window.ethereum.on('chainChanged', () => {
-            window.location.reload();
         });
     }
 }
 
 async function connectWallet() {
     try {
+        if (!window.ethereum) {
+            showStatus('Please install MetaMask!', 'error');
+            return;
+        }
+        
         const accounts = await window.ethereum.request({ 
             method: 'eth_requestAccounts' 
         });
         
         userAddress = accounts[0];
-        currentViewAddress = userAddress;
-        isViewingOtherWallet = false;
-        
         await initializeApp();
         showStatus('Wallet connected!', 'success');
         
@@ -151,27 +112,12 @@ async function initializeApp() {
         provider = new ethers.providers.Web3Provider(window.ethereum);
         signer = provider.getSigner();
         
-        // Get network
-        const network = await provider.getNetwork();
-        chainId = network.chainId;
-        
-        // Check network
-        if (chainId !== CONFIG.BSC_CHAIN_ID) {
-            showStatus('Please switch to BSC Mainnet (Chain ID: 56)', 'warning');
-            return;
-        }
-        
         // Initialize contracts
         eniacContract = new ethers.Contract(CONFIG.ENIAC_TOKEN, ENIAC_ABI, signer);
         masterchefContract = new ethers.Contract(CONFIG.MASTERCHEF, MASTERCHEF_ABI, signer);
         
         // Load data
         await loadData();
-        
-        isConnected = true;
-        
-        // Start auto-refresh
-        setInterval(loadData, 15000);
         
     } catch (error) {
         console.error('Initialization error:', error);
@@ -180,17 +126,18 @@ async function initializeApp() {
 }
 
 // ============================
-// STAKE FUNCTION - FIXED
+// FIXED STAKE FUNCTION
 // ============================
 async function stakeTokens() {
     try {
         // Check connection
-        if (!userAddress || !eniacContract || !masterchefContract) {
+        if (!userAddress) {
             showStatus('Please connect wallet first', 'warning');
             return;
         }
         
         // Get amount
+        const amountInput = document.getElementById('amountInput');
         const amount = amountInput.value;
         const amountNum = parseFloat(amount);
         
@@ -225,38 +172,19 @@ async function stakeTokens() {
         const amountWei = ethers.utils.parseUnits(amountNum.toString(), 18);
         console.log('Amount in wei:', amountWei.toString());
         
-        // Try different pool IDs if needed
-        const poolIdsToTry = [0, 1, 2, 3];
-        let tx = null;
+        // Disable stake button during transaction
+        const stakeBtn = document.getElementById('stakeBtn');
+        stakeBtn.disabled = true;
+        stakeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Staking...';
         
-        for (const pid of poolIdsToTry) {
-            try {
-                console.log(`Trying pool ${pid}...`);
-                
-                // First check if pool exists and is valid
-                const poolInfo = await masterchefContract.poolInfo(pid);
-                console.log(`Pool ${pid} info:`, poolInfo);
-                
-                // Try to stake in this pool
-                tx = await masterchefContract.deposit(pid, amountWei, {
-                    gasLimit: 300000 // Fixed gas limit to avoid estimation issues
-                });
-                
-                currentPoolId = pid;
-                console.log(`Stake successful in pool ${pid}`);
-                break;
-                
-            } catch (poolError) {
-                console.log(`Pool ${pid} failed:`, poolError.message);
-                continue;
-            }
-        }
+        // Send transaction with fixed gas settings
+        const tx = await masterchefContract.deposit(currentPoolId, amountWei, {
+            gasLimit: 500000, // Fixed higher gas limit for BSC
+            gasPrice: ethers.utils.parseUnits('5', 'gwei') // 5 gwei for BSC
+        });
         
-        if (!tx) {
-            throw new Error('Could not stake in any pool');
-        }
-        
-        showStatus('Stake submitted. Waiting for confirmation...', 'info');
+        console.log('Transaction sent:', tx.hash);
+        showStatus('Transaction submitted. Waiting for confirmation...', 'info');
         
         // Wait for transaction
         const receipt = await tx.wait();
@@ -278,32 +206,54 @@ async function stakeTokens() {
         } else if (error.message.includes('insufficient funds')) {
             errorMsg = 'Insufficient BNB for gas fees';
         } else if (error.message.includes('execution reverted')) {
-            errorMsg = 'Contract execution failed. Please try a different amount.';
+            // Try to decode revert reason
+            const revertMatch = error.message.match(/execution reverted: (.*?)(?="|$)/);
+            if (revertMatch) {
+                errorMsg = `Contract error: ${revertMatch[1]}`;
+            } else {
+                errorMsg = 'Contract execution reverted';
+            }
+        } else if (error.message.includes('UNPREDICTABLE_GAS_LIMIT')) {
+            errorMsg = 'Transaction may fail. Please check your allowance and try again.';
         }
         
         showStatus(errorMsg, 'error');
         
-        // Try a simple test transaction
-        if (error.message.includes('execution reverted')) {
-            showStatus('Trying test transaction with 0.001 ENiAC...', 'info');
+        // Try pool 0 if current pool fails
+        if (currentPoolId !== 0 && error.message.includes('execution reverted')) {
+            showStatus('Trying pool 0...', 'info');
+            currentPoolId = 0;
             
             try {
-                const testAmount = ethers.utils.parseUnits('0.001', 18);
-                const testTx = await masterchefContract.deposit(0, testAmount, {
-                    gasLimit: 300000
+                const amountInput = document.getElementById('amountInput');
+                const amount = amountInput.value;
+                const amountNum = parseFloat(amount);
+                const amountWei = ethers.utils.parseUnits(amountNum.toString(), 18);
+                
+                const tx = await masterchefContract.deposit(0, amountWei, {
+                    gasLimit: 500000,
+                    gasPrice: ethers.utils.parseUnits('5', 'gwei')
                 });
                 
-                await testTx.wait();
-                showStatus('Test stake successful! Please try your amount again.', 'success');
-            } catch (testError) {
-                console.error('Test stake failed:', testError);
+                await tx.wait();
+                showStatus(`Successfully staked ${amountNum} ENiAC in pool 0!`, 'success');
+                amountInput.value = '';
+                await loadData();
+            } catch (retryError) {
+                console.error('Retry failed:', retryError);
             }
         }
+        
+    } finally {
+        // Re-enable stake button
+        const stakeBtn = document.getElementById('stakeBtn');
+        stakeBtn.disabled = false;
+        stakeBtn.innerHTML = '<i class="fas fa-lock"></i> Stake';
     }
 }
 
 // ============================
-// APPROVE FUNCTION
+// APPROVE FUNCTION WITH BETTER ERROR HANDLING
 // ============================
 async function approveTokens() {
     try {
@@ -312,6 +262,7 @@ async function approveTokens() {
             return;
         }
         
+        const amountInput = document.getElementById('amountInput');
         const amount = amountInput.value;
         const amountNum = parseFloat(amount);
         
@@ -322,9 +273,18 @@ async function approveTokens() {
         
         showStatus('Approving tokens...', 'info');
         
-        // Use unlimited approval
-        const maxApproval = ethers.constants.MaxUint256;
-        const tx = await eniacContract.approve(CONFIG.MASTERCHEF, maxApproval);
+        // Disable approve button
+        const approveBtn = document.getElementById('approveBtn');
+        approveBtn.disabled = true;
+        approveBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Approving...';
+        
+        // Use specific amount instead of unlimited to avoid issues
+        const amountWei = ethers.utils.parseUnits(amountNum.toString(), 18);
+        
+        const tx = await eniacContract.approve(CONFIG.MASTERCHEF, amountWei, {
+            gasLimit: 100000,
+            gasPrice: ethers.utils.parseUnits('5', 'gwei')
+        });
         
         showStatus('Approval submitted. Waiting...', 'info');
         await tx.wait();
@@ -334,7 +294,97 @@ async function approveTokens() {
         
     } catch (error) {
         console.error('Approve error:', error);
-        showStatus('Approve failed: ' + error.message, 'error');
+        
+        let errorMsg = 'Approve failed';
+        if (error.code === 4001) {
+            errorMsg = 'Transaction rejected by user';
+        } else if (error.message.includes('insufficient funds')) {
+            errorMsg = 'Insufficient BNB for gas fees';
+        }
+        
+        showStatus(errorMsg, 'error');
+        
+    } finally {
+        // Re-enable approve button
+        const approveBtn = document.getElementById('approveBtn');
+        approveBtn.disabled = false;
+        approveBtn.innerHTML = '<i class="fas fa-check-circle"></i> Approve';
+    }
+}
+
+// ============================
+// SIMPLIFIED LOAD DATA
+// ============================
+async function loadData() {
+    if (!userAddress || !eniacContract) return;
+    
+    try {
+        // Load wallet balance
+        const balance = await eniacContract.balanceOf(userAddress);
+        const balanceFormatted = ethers.utils.formatUnits(balance, 18);
+        document.getElementById('walletBalance').textContent = 
+            parseFloat(balanceFormatted).toFixed(4) + ' ENiAC';
+        document.getElementById('availableBalance').textContent = 
+            parseFloat(balanceFormatted).toFixed(4);
+        
+        // Load allowance
+        const allowance = await eniacContract.allowance(userAddress, CONFIG.MASTERCHEF);
+        const allowanceFormatted = ethers.utils.formatUnits(allowance, 18);
+        document.getElementById('allowanceAmount').textContent = 
+            parseFloat(allowanceFormatted).toFixed(4) + ' ENiAC';
+        
+        // Update approve button
+        const approveBtn = document.getElementById('approveBtn');
+        if (parseFloat(allowanceFormatted) > 0) {
+            approveBtn.innerHTML = '<i class="fas fa-check"></i> Approved';
+            approveBtn.disabled = true;
+            approveBtn.style.background = '#059669';
+            document.getElementById('stakeBtn').disabled = false;
+        } else {
+            approveBtn.innerHTML = '<i class="fas fa-check-circle"></i> Approve';
+            approveBtn.disabled = false;
+            approveBtn.style.background = '#10b981';
+            document.getElementById('stakeBtn').disabled = true;
+        }
+        
+        // Load staking data
+        await loadStakingData();
+        
+    } catch (error) {
+        console.error('Load data error:', error);
+    }
+}
+
+async function loadStakingData() {
+    try {
+        // Try pool 0 first
+        const userInfo = await masterchefContract.userInfo(0, userAddress);
+        const staked = ethers.utils.formatUnits(userInfo.amount, 18);
+        
+        document.getElementById('stakedAmount').textContent = 
+            parseFloat(staked).toFixed(4) + ' ENiAC';
+        
+        // Load pending rewards
+        const pending = await masterchefContract.pendingANT(0, userAddress);
+        const pendingFormatted = ethers.utils.formatUnits(pending, 18);
+        document.getElementById('pendingRewards').textContent = 
+            parseFloat(pendingFormatted).toFixed(4) + ' ENiAC';
+        
+        // Enable/disable buttons
+        document.getElementById('unstakeBtn').disabled = parseFloat(staked) <= 0;
+        document.getElementById('claimBtn').disabled = parseFloat(pendingFormatted) <= 0;
+        
+        // Update current pool ID
+        if (parseFloat(staked) > 0) {
+            currentPoolId = 0;
+        }
+        
+    } catch (error) {
+        console.error('Load staking data error:', error);
+        document.getElementById('stakedAmount').textContent = '0 ENiAC';
+        document.getElementById('pendingRewards').textContent = '0 ENiAC';
+        document.getElementById('unstakeBtn').disabled = true;
+        document.getElementById('claimBtn').disabled = true;
     }
 }
 
@@ -347,11 +397,11 @@ function setMaxAmount() {
         return;
     }
     
-    const balanceText = walletBalance.textContent;
+    const balanceText = document.getElementById('walletBalance').textContent;
     const balance = parseFloat(balanceText);
     
     if (!isNaN(balance) && balance > 0) {
-        amountInput.value = balance.toFixed(4);
+        document.getElementById('amountInput').value = balance.toFixed(4);
     }
 }
 
@@ -362,6 +412,7 @@ async function unstakeTokens() {
             return;
         }
         
+        const amountInput = document.getElementById('amountInput');
         const amount = amountInput.value;
         const amountNum = parseFloat(amount);
         
@@ -372,9 +423,15 @@ async function unstakeTokens() {
         
         showStatus('Unstaking tokens...', 'info');
         
+        // Disable button
+        const unstakeBtn = document.getElementById('unstakeBtn');
+        unstakeBtn.disabled = true;
+        unstakeBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Unstaking...';
+        
         const amountWei = ethers.utils.parseUnits(amountNum.toString(), 18);
         const tx = await masterchefContract.withdraw(currentPoolId, amountWei, {
-            gasLimit: 300000
+            gasLimit: 500000,
+            gasPrice: ethers.utils.parseUnits('5', 'gwei')
         });
         
         showStatus('Unstake submitted. Waiting...', 'info');
@@ -387,6 +444,11 @@ async function unstakeTokens() {
     } catch (error) {
         console.error('Unstake error:', error);
         showStatus('Unstake failed: ' + error.message, 'error');
+        
+    } finally {
+        const unstakeBtn = document.getElementById('unstakeBtn');
+        unstakeBtn.disabled = false;
+        unstakeBtn.innerHTML = '<i class="fas fa-unlock"></i> Unstake';
     }
 }
 
@@ -399,9 +461,15 @@ async function claimRewards() {
         
         showStatus('Claiming rewards...', 'info');
         
+        // Disable button
+        const claimBtn = document.getElementById('claimBtn');
+        claimBtn.disabled = true;
+        claimBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Claiming...';
+        
         // Withdraw 0 to claim rewards
         const tx = await masterchefContract.withdraw(currentPoolId, 0, {
-            gasLimit: 300000
+            gasLimit: 500000,
+            gasPrice: ethers.utils.parseUnits('5', 'gwei')
         });
         
         showStatus('Claim submitted. Waiting...', 'info');
@@ -413,140 +481,11 @@ async function claimRewards() {
     } catch (error) {
         console.error('Claim error:', error);
         showStatus('Claim failed: ' + error.message, 'error');
-    }
-}
-
-// ============================
-// DATA LOADING
-// ============================
-async function loadData() {
-    if (!currentViewAddress) return;
-    
-    try {
-        // Load wallet balance
-        const balance = await eniacContract.balanceOf(currentViewAddress);
-        const balanceFormatted = ethers.utils.formatUnits(balance, 18);
-        walletBalance.textContent = parseFloat(balanceFormatted).toFixed(4) + ' ENiAC';
-        availableBalance.textContent = parseFloat(balanceFormatted).toFixed(4);
         
-        // Load allowance (only for user's wallet)
-        if (userAddress === currentViewAddress) {
-            const allowance = await eniacContract.allowance(currentViewAddress, CONFIG.MASTERCHEF);
-            const allowanceFormatted = ethers.utils.formatUnits(allowance, 18);
-            allowanceAmount.textContent = parseFloat(allowanceFormatted).toFixed(4) + ' ENiAC';
-            
-            // Update approve button
-            if (parseFloat(allowanceFormatted) > 0) {
-                approveBtn.innerHTML = '<i class="fas fa-check"></i> Approved';
-                approveBtn.disabled = true;
-                approveBtn.style.background = '#059669';
-                stakeBtn.disabled = false;
-            } else {
-                approveBtn.innerHTML = '<i class="fas fa-check-circle"></i> Approve';
-                approveBtn.disabled = false;
-                approveBtn.style.background = '#10b981';
-                stakeBtn.disabled = true;
-            }
-        }
-        
-        // Load staking data
-        await loadStakingData();
-        
-        // Load APR data
-        await calculateAPR();
-        
-    } catch (error) {
-        console.error('Load data error:', error);
-    }
-}
-
-async function loadStakingData() {
-    try {
-        // Try multiple pool IDs
-        for (let pid = 0; pid < 4; pid++) {
-            try {
-                const userInfo = await masterchefContract.userInfo(pid, currentViewAddress);
-                const staked = ethers.utils.formatUnits(userInfo.amount, 18);
-                
-                if (parseFloat(staked) > 0) {
-                    currentPoolId = pid;
-                    stakedAmount.textContent = parseFloat(staked).toFixed(4) + ' ENiAC';
-                    
-                    // Load pending rewards
-                    const pending = await masterchefContract.pendingANT(pid, currentViewAddress);
-                    const pendingFormatted = ethers.utils.formatUnits(pending, 18);
-                    pendingRewards.textContent = parseFloat(pendingFormatted).toFixed(4) + ' ENiAC';
-                    
-                    // Enable buttons
-                    unstakeBtn.disabled = false;
-                    claimBtn.disabled = false;
-                    return;
-                }
-            } catch (error) {
-                continue;
-            }
-        }
-        
-        // If no staking found
-        stakedAmount.textContent = '0 ENiAC';
-        pendingRewards.textContent = '0 ENiAC';
-        unstakeBtn.disabled = true;
-        claimBtn.disabled = true;
-        
-    } catch (error) {
-        console.error('Load staking data error:', error);
-    }
-}
-
-async function calculateAPR() {
-    try {
-        const poolInfo = await masterchefContract.poolInfo(currentPoolId);
-        const totalAllocPoint = await masterchefContract.totalAllocPoint();
-        const antPerBlock = await masterchefContract.ANTPerBlock();
-        
-        // Calculate APR
-        const poolRewardPerBlock = antPerBlock.mul(poolInfo.allocPoint).div(totalAllocPoint);
-        const poolRewardPerBlockFormatted = parseFloat(ethers.utils.formatUnits(poolRewardPerBlock, 18));
-        
-        // Get total staked
-        let totalStaked = 0;
-        try {
-            const lpTokenContract = new ethers.Contract(
-                poolInfo.lpToken,
-                ['function balanceOf(address) view returns (uint256)'],
-                provider
-            );
-            
-            const totalStakedWei = await lpTokenContract.balanceOf(CONFIG.MASTERCHEF);
-            totalStaked = parseFloat(ethers.utils.formatUnits(totalStakedWei, 18));
-        } catch (error) {
-            console.log('Could not get total staked:', error.message);
-        }
-        
-        // Calculate APR
-        let apr = 0;
-        if (totalStaked > 0 && poolRewardPerBlockFormatted > 0) {
-            const annualRewards = poolRewardPerBlockFormatted * CONFIG.BLOCKS_PER_YEAR;
-            apr = (annualRewards / totalStaked) * 100;
-        }
-        
-        // Update UI
-        const aprValue = document.getElementById('aprValue');
-        const apyValue = document.getElementById('apyValue');
-        const dailyRewardsAPR = document.getElementById('dailyRewardsAPR');
-        const rewardPerBlock = document.getElementById('rewardPerBlock');
-        const totalStakedEl = document.getElementById('totalStaked');
-        const antPerBlockEl = document.getElementById('antPerBlock');
-        
-        if (aprValue) aprValue.textContent = apr.toFixed(2) + '%';
-        if (apyValue) apyValue.textContent = (Math.pow(1 + apr/365/100, 365) - 1) * 100).toFixed(2) + '%';
-        if (dailyRewardsAPR) dailyRewardsAPR.textContent = (apr / 365).toFixed(4) + '%';
-        if (rewardPerBlock) rewardPerBlock.textContent = poolRewardPerBlockFormatted.toFixed(6) + ' ENiAC';
-        if (totalStakedEl) totalStakedEl.textContent = totalStaked.toLocaleString() + ' ENiAC';
-        if (antPerBlockEl) antPerBlockEl.textContent = parseFloat(ethers.utils.formatUnits(antPerBlock, 18)).toFixed(6) + ' ENiAC';
-        
-    } catch (error) {
-        console.error('APR calculation error:', error);
+    } finally {
+        const claimBtn = document.getElementById('claimBtn');
+        claimBtn.disabled = false;
+        claimBtn.innerHTML = '<i class="fas fa-gift"></i> Claim Rewards';
     }
 }
 
@@ -554,6 +493,9 @@ async function calculateAPR() {
 // UI FUNCTIONS
 // ============================
 function updateUI() {
+    const walletInfo = document.getElementById('walletInfo');
+    const connectBtn = document.getElementById('connectBtn');
+    
     if (userAddress) {
         const shortAddr = userAddress.substring(0, 6) + '...' + userAddress.substring(userAddress.length - 4);
         walletInfo.innerHTML = `<i class="fas fa-wallet"></i> ${shortAddr}`;
@@ -561,8 +503,8 @@ function updateUI() {
         connectBtn.classList.add('connected');
         
         // Enable inputs
-        maxBtn.disabled = false;
-        amountInput.disabled = false;
+        document.getElementById('maxBtn').disabled = false;
+        document.getElementById('amountInput').disabled = false;
         
     } else {
         walletInfo.innerHTML = '<i class="fas fa-wallet"></i> <span>Not Connected</span>';
@@ -570,65 +512,38 @@ function updateUI() {
         connectBtn.classList.remove('connected');
         
         // Disable everything
-        maxBtn.disabled = true;
-        approveBtn.disabled = true;
-        stakeBtn.disabled = true;
-        unstakeBtn.disabled = true;
-        claimBtn.disabled = true;
-        amountInput.disabled = true;
+        document.getElementById('maxBtn').disabled = true;
+        document.getElementById('approveBtn').disabled = true;
+        document.getElementById('stakeBtn').disabled = true;
+        document.getElementById('unstakeBtn').disabled = true;
+        document.getElementById('claimBtn').disabled = true;
+        document.getElementById('amountInput').disabled = true;
         
         clearData();
     }
 }
 
 function clearData() {
-    walletBalance.textContent = '0 ENiAC';
-    stakedAmount.textContent = '0 ENiAC';
-    pendingRewards.textContent = '0 ENiAC';
-    allowanceAmount.textContent = '0 ENiAC';
-    availableBalance.textContent = '0';
-    amountInput.value = '';
+    document.getElementById('walletBalance').textContent = '0 ENiAC';
+    document.getElementById('stakedAmount').textContent = '0 ENiAC';
+    document.getElementById('pendingRewards').textContent = '0 ENiAC';
+    document.getElementById('allowanceAmount').textContent = '0 ENiAC';
+    document.getElementById('availableBalance').textContent = '0';
+    document.getElementById('amountInput').value = '';
 }
 
 function resetApp() {
     userAddress = null;
-    isConnected = false;
-    currentViewAddress = null;
-    isViewingOtherWallet = false;
+    eniacContract = null;
+    masterchefContract = null;
     updateUI();
 }
 
 // ============================
-// WALLET VIEW FUNCTIONS
+// WALLET VIEW FUNCTIONS (SIMPLIFIED)
 // ============================
 async function viewOtherWallet() {
-    try {
-        const inputAddress = viewWalletInput.value.trim();
-        
-        if (!inputAddress) {
-            showStatus('Please enter a wallet address', 'warning');
-            return;
-        }
-        
-        if (!ethers.utils.isAddress(inputAddress)) {
-            showStatus('Invalid wallet address', 'error');
-            return;
-        }
-        
-        currentViewAddress = inputAddress;
-        isViewingOtherWallet = true;
-        
-        await loadData();
-        showStatus(`Viewing wallet: ${inputAddress.substring(0, 10)}...`, 'info');
-        
-        // Update UI for viewing mode
-        walletInfo.innerHTML = `<i class="fas fa-eye"></i> Viewing: ${inputAddress.substring(0, 6)}...`;
-        walletInfo.style.background = '#374151';
-        
-    } catch (error) {
-        console.error('View wallet error:', error);
-        showStatus('Failed to view wallet: ' + error.message, 'error');
-    }
+    showStatus('View other wallet feature temporarily disabled', 'info');
 }
 
 function viewMyWallet() {
@@ -637,15 +552,8 @@ function viewMyWallet() {
         return;
     }
     
-    currentViewAddress = userAddress;
-    isViewingOtherWallet = false;
-    viewWalletInput.value = '';
-    
     loadData();
     showStatus('Viewing your wallet', 'info');
-    
-    // Reset UI
-    updateUI();
 }
 
 function copyMyAddress() {
@@ -675,17 +583,49 @@ function showStatus(message, type) {
     }, 5000);
 }
 
-// Add copy buttons for contract addresses
+// Test function to check contract connection
+async function testContractConnection() {
+    try {
+        console.log('Testing contract connection...');
+        
+        // Test ENiAC contract
+        const name = await eniacContract.name();
+        const symbol = await eniacContract.symbol();
+        console.log('ENiAC Token:', name, '(', symbol, ')');
+        
+        // Test MasterChef contract
+        const poolLength = await masterchefContract.poolLength();
+        console.log('MasterChef pool length:', poolLength.toString());
+        
+        // Try to get user info for pool 0
+        const userInfo = await masterchefContract.userInfo(0, userAddress);
+        console.log('User info for pool 0:', userInfo);
+        
+        return true;
+        
+    } catch (error) {
+        console.error('Contract test failed:', error);
+        return false;
+    }
+}
+
+// Add test button for debugging
 document.addEventListener('DOMContentLoaded', function() {
-    document.querySelectorAll('.contract-address').forEach(addr => {
-        const copyBtn = document.createElement('button');
-        copyBtn.className = 'copy-btn';
-        copyBtn.innerHTML = '<i class="fas fa-copy"></i>';
-        copyBtn.onclick = () => {
-            navigator.clipboard.writeText(addr.textContent)
-                .then(() => showStatus('Address copied!', 'success'))
-                .catch(() => showStatus('Failed to copy', 'error'));
-        };
-        addr.parentNode.insertBefore(copyBtn, addr.nextSibling);
-    });
+    const testBtn = document.createElement('button');
+    testBtn.innerHTML = '<i class="fas fa-vial"></i> Test Connection';
+    testBtn.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: #8b5cf6;
+        color: white;
+        border: none;
+        padding: 10px 15px;
+        border-radius: 5px;
+        cursor: pointer;
+        z-index: 999;
+        font-size: 12px;
+    `;
+    testBtn.onclick = testContractConnection;
+    document.body.appendChild(testBtn);
 });
